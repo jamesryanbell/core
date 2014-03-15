@@ -96,6 +96,12 @@ class Updater extends BasicEmitter {
 	 * runs the update actions in maintenance mode, does not upgrade the source files
 	 */
 	public function upgrade() {
+		$errors = $this->checkUpgrade();
+		if (!empty($errors)) {
+			$this->emit('\OC\Updater', 'failure', $errors);
+			return false;
+		}
+
 		\OC_DB::enableCaching(false);
 		\OC_Config::setValue('maintenance', true);
 		$installedVersion = \OC_Config::getValue('version', '0.0.0');
@@ -140,6 +146,41 @@ class Updater extends BasicEmitter {
 		\OC_Appconfig::setValue('core', 'lastupdatedat', 0);
 		\OC_Config::setValue('maintenance', false);
 		$this->emit('\OC\Updater', 'maintenanceEnd');
+	}
+
+	private function checkUpgrade() {
+		$errors = array();
+		$errors = array_merge($errors, $this->checkDBVersion());
+
+		return $errors;
+	}
+
+	/**
+	 * Check the database version
+	 */
+	private function checkDBVersion() {
+		$dbType = \OC_Config::getValue('dbtype', 'sqlite');
+		if ($dbType === 'pgsql') {
+			// check PostgreSQL version
+			try {
+				$result = \OC_DB::executeAudited('SHOW SERVER_VERSION');
+				$data = $result->fetchRow();
+				if (isset($data['server_version'])) {
+					$version = $data['server_version'];
+					if (version_compare($version, '9.0.0', '<')) {
+						$errors[] = array(
+							'error' => 'PostgreSQL >= 9 required'
+						);
+					}
+				}
+			}
+			catch (\Doctrine\DBAL\DBALException $e){
+				$errors[] = array(
+					'error' => 'PostgreSQL >= 9 required'
+				);
+			}
+		}
+		return $errors;
 	}
 
 	private function upgradeFileCache() {
